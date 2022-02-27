@@ -14,24 +14,28 @@ The primary user facing function is `solveWithTrustedFunctions`. The function ta
 
 ## Algorithm Details
 
-The algorithm begins by finding instances of the trusted functions inside the input R1CS file, which allows us to turn the R1CS into _special constraints_ and _reduced constraints_. The reduced constraints are still in R1CS form (e.g. $$z = x * y$$), whereas the special constraints are in function form (i.e. $$y_3 = f(y_1, y_2)$$)
+The algorithm begins by finding instances of the trusted functions inside the input R1CS file, which allows us to turn the R1CS into _special constraints_ and _reduced constraints_. The reduced constraints are still in R1CS form (e.g. <img src="https://render.githubusercontent.com/render/math?math=z = x * y">), whereas the special constraints are in function form (i.e. <img src="https://render.githubusercontent.com/render/math?math=y_3 = f(y_1, y_2)">)
 
 Then, we apply a series of rules to the reduced constraints, and the special constraints whenever appropriate as well. The rules on reduced constraints are as follows. Remember that we are working over a finite field!
 
 - (Rule 1) If <img src="https://render.githubusercontent.com/render/math?math=cx = <unique>">, and <img src="https://render.githubusercontent.com/render/math?math=c \neq 0"> is a constant, then <img src="https://render.githubusercontent.com/render/math?math=x"> is also uniquely determined.
-- (Rule 2a) If $(x-a) * (x-b) = 0$, then $x = [a, b]$. Namely, if $\{a,b\} = \{0,1\}$, then $0 \le x \le 1$ as well.
-- (Rule 2b) If $a*x + b = 0$, then $x = -b/a$.
-- (Rule 3) If $z = 2^0 x_0 + 2^1 x_1 + \ldots + 2^n x_n$, and $x_0, x_1, ... x_n$ are all in $[0,1]$, then $z \in [0, 2^{n+1}]$. Furthermore, if $z$ is uniquely determined, so are $x_0, x_1, ... x_n$.
-- (Rule 4a) If $x = y$, then all properties from $x$ are copied to $y$.
-- (Rule 4b) If $1 = x + y$, and $x \in [0,1]$ (or $y \in [0,1]$), then the other variable is also in $[0,1]$. Furthermore, if $x$ is uniquely determined, $y$ is uniquely determined as well.
-- (Rule 5) If $z = x_0 + a_1 x_1 + \ldots + a_n x_n$, and $a_i \mid a_{i+1}$, and $x_i < a_{i+1} / a_i$ (and $x_n$ is less than $p / a_n - 1$, where $p$ is the prime of the finite field), then one can bound $z$ similarly to Rule 3, and if $z$ is uniquely determined, then $x_0, x_1, ... x_n$ are also uniquely determined.
-- (Rule 6) This is a rule called the AllButOneZero rule, and considers groups of variables, all but at most one of which are zero. It's best illustrated with an example. If $y_1$ is uniquely determined, and
-  $x_1 * y_1 = 0$
-  $x_2 * (y_1 - 1) = 0$
-  $x_3 * (y_1 - 2) = 0$
-  $x_1 + x_2 + x_3 = z$
-  Then assuming that $z$ is uniquely determined as well, we can uniquely determine $x_1, x_2, x_3$.
-- (Rule 7) If $Ax = b$, where $A$ is a constant square matrix with nonzero determinant, and $b$ is a uniquely determined vector, then $x$ is uniquely determined as well.
+- (Rule 2a) If <img src="https://render.githubusercontent.com/render/math?math=(x-a) * (x-b) = 0">, then <img src="https://render.githubusercontent.com/render/math?math=x = [a, b]">. Namely, if <img src="https://render.githubusercontent.com/render/math?math=\{a,b\} = \{0,1\}">, then <img src="https://render.githubusercontent.com/render/math?math=0 \le x \le 1"> as well.
+- (Rule 2b) If <img src="https://render.githubusercontent.com/render/math?math=a*x + b = 0">, then <img src="https://render.githubusercontent.com/render/math?math=x = -b/a">.
+- (Rule 3) If <img src="https://render.githubusercontent.com/render/math?math=z = 2^0 x_0 + 2^1 x_1 + \ldots + 2^n x_n">, and <img src="https://render.githubusercontent.com/render/math?math=x_0, x_1, ... x_n"> are all in <img src="https://render.githubusercontent.com/render/math?math=[0,1]">, then <img src="https://render.githubusercontent.com/render/math?math="z \in [0, 2^{n+1}]">. Furthermore, if <img src="https://render.githubusercontent.com/render/math?math=z"> is uniquely determined, so are <img src="https://render.githubusercontent.com/render/math?math=x_0, x_1, ... x_n">.
+- (Rule 4a) If <img src="https://render.githubusercontent.com/render/math?math=x = y">, then all properties from <img src="https://render.githubusercontent.com/render/math?math=x"> are copied to <img src="https://render.githubusercontent.com/render/math?math=y">.
+- (Rule 4b) If <img src="https://render.githubusercontent.com/render/math?math=1 = x + y">, and <img src="https://render.githubusercontent.com/render/math?math=x \in [0,1]"> (or <img src="https://render.githubusercontent.com/render/math?math=y \in [0,1]">), then the other variable is also in <img src="https://render.githubusercontent.com/render/math?math=[0,1]">. Furthermore, if <img src="https://render.githubusercontent.com/render/math?math=x"> is uniquely determined, <img src="https://render.githubusercontent.com/render/math?math=y"> is uniquely determined as well.
+- (Rule 5) If <img src="https://render.githubusercontent.com/render/math?math=z = x_0 + a_1 x_1 + \ldots + a_n x_n">, and <img src="https://render.githubusercontent.com/render/math?math=a_i \mid a_{i+1}">, and <img src="https://render.githubusercontent.com/render/math?math=x_i < a_{i+1} / a_i"> (and <img src="https://render.githubusercontent.com/render/math?math=x_n"> is less than <img src="https://render.githubusercontent.com/render/math?math=p / a_n - 1">, where <img src="https://render.githubusercontent.com/render/math?math=p"> is the prime of the finite field), then one can bound <img src="https://render.githubusercontent.com/render/math?math=z"> similarly to Rule 3, and if <img src="https://render.githubusercontent.com/render/math?math=z"> is uniquely determined, then <img src="https://render.githubusercontent.com/render/math?math=x_0, x_1, ... x_n"> are also uniquely determined.
+- (Rule 6) This is a rule called the AllButOneZero rule, and considers groups of variables, all but at most one of which are zero. It's best illustrated with an example. If <img src="https://render.githubusercontent.com/render/math?math=y_1"> is uniquely determined, and
+  <img src="https://render.githubusercontent.com/render/math?math=x_1 * y_1 = 0">
+
+  <img src="https://render.githubusercontent.com/render/math?math=x_2 * (y_1 - 1) = 0">
+
+  <img src="https://render.githubusercontent.com/render/math?math=x_3 * (y_1 - 2) = 0">
+
+  <img src="https://render.githubusercontent.com/render/math?math=x_1 + x_2 + x_3 = z">
+  Then assuming that <img src="https://render.githubusercontent.com/render/math?math=z"> is uniquely determined as well, we can uniquely determine <img src="https://render.githubusercontent.com/render/math?math=x_1, x_2, x_3">.
+
+- (Rule 7) If <img src="https://render.githubusercontent.com/render/math?math=Ax = b">, where <img src="https://render.githubusercontent.com/render/math?math=A"> is a constant square matrix with nonzero determinant, and <img src="https://render.githubusercontent.com/render/math?math=b"> is a uniquely determined vector, then <img src="https://render.githubusercontent.com/render/math?math=x"> is uniquely determined as well.
 
 These deduction rules are implemented by maintaining information on each variable in the `VariableState` object.
 
