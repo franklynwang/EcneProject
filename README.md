@@ -18,7 +18,7 @@ The algorithm begins by finding instances of the trusted functions inside the in
 
 Then, we apply a series of rules to the reduced constraints, and the special constraints whenever appropriate as well. The rules on reduced constraints are as follows. Remember that we are working over a finite field!
 
-- (Rule 1) If $cx = <unique>$, and $c \neq 0$ is a constant, then $x$ is also uniquely determined.
+- (Rule 1) If <img src="https://render.githubusercontent.com/render/math?math=cx = <unique>">, and <img src="https://render.githubusercontent.com/render/math?math=c \neq 0"> is a constant, then <img src="https://render.githubusercontent.com/render/math?math=x"> is also uniquely determined.
 - (Rule 2a) If $(x-a) * (x-b) = 0$, then $x = [a, b]$. Namely, if $\{a,b\} = \{0,1\}$, then $0 \le x \le 1$ as well.
 - (Rule 2b) If $a*x + b = 0$, then $x = -b/a$.
 - (Rule 3) If $z = 2^0 x_0 + 2^1 x_1 + \ldots + 2^n x_n$, and $x_0, x_1, ... x_n$ are all in $[0,1]$, then $z \in [0, 2^{n+1}]$. Furthermore, if $z$ is uniquely determined, so are $x_0, x_1, ... x_n$.
@@ -37,10 +37,16 @@ These deduction rules are implemented by maintaining information on each variabl
 
 ## Setup
 
-First, install with all submodules (notably the circomlib submodule)
+First, clone the repository:
 
 ```bash
-git clone --recurse-submodules -j8 https://github.com/franklynwang/ecne
+git clone https://github.com/franklynwang/EcneProject
+```
+
+Then, clone the circomlib library in Circom_Functions/
+
+```bash
+git clone https://github.com/iden3/circomlib
 ```
 
 The following requirements must be present in your environment.
