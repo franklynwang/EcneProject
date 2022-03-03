@@ -470,6 +470,82 @@ function solveWithTrustedFunctions(
     end
 end
 
+function flip_keys(input_map::DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}})
+    output_map = DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}}(
+        F(0)
+    )
+    for key in keys(input_map)
+        output_map[key] = -input_map[key]
+    end
+    return output_map
+end
+
+# Unoptimize function: Allows us to convert optimized circuits into unoptimized circuits, which means we don't sacrifice any speed at runtime, but verification is made substantially easier. 
+function R1CSUnOptimize(
+    input_r1cs::String,
+)
+    equations_main, knowns_main, outs_main = readR1CS(input_r1cs)
+    all_equations = []
+    num_variables = maximum([
+        maximum([
+            maximum(keys(equations_main[i].a)),
+            maximum(keys(equations_main[i].b)),
+            maximum(keys(equations_main[i].c)),
+        ]) for i = 1:length(equations_main)
+    ])
+    cur_var = num_variables + 1
+    macro_vars = Dict{DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}},Base.Int64}()
+    for i = 1:length(equations_main)
+        if (length(nonzeroKeys(equations_main[i].a)) == 0) && (length(nonzeroKeys(equations_main[i].b)) == 0)
+            push!(all_equations, equations_main[i])
+        else
+            new_eqs = [equations_main[i].a, equations_main[i].b]
+            var_values = []
+            for eq in new_eqs
+                eq1 = eq
+                var_index = 0
+                update_var = false
+                if eq1 in keys(macro_vars)
+                    var_index = macro_vars[eq1]
+                else
+                    var_index = cur_var
+                    macro_vars[eq1] = var_index
+                    update_var = true
+                end
+                push!(var_values, var_index)
+                macro_vars[eq1] = cur_var
+                eq1[cur_var] = F(-1)
+                new_eq_1 = R1CSEquation(
+                    DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}}(F(0), 1 => F(0)),
+                    DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}}(F(0), 1 => F(0)),
+                    eq1,
+                )
+                eq2 = flip_keys(eq)
+                eq2[cur_var] = F(1)
+                new_eq_2 = R1CSEquation(
+                    DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}}(F(0), 1 => F(0)),
+                    DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}}(F(0), 1 => F(0)),
+                    eq2,
+                )
+                if update_var
+                    cur_var += 1
+                    push!(all_equations, new_eq_1)
+                    push!(all_equations, new_eq_2)
+                end
+            end
+            var_1 = DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}}(F(0))
+            var_1[var_values[1]] = F(1)
+            var_2 = DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}}(F(0))
+            var_2[var_values[2]] = F(1)
+
+            push!(all_equations, R1CSEquation(var_1, var_2,
+                equations_main[i].c
+            ))
+        end
+    end
+    return all_equations, knowns_main, outs_main
+end
+
 function SolveConstraintsSymbolic(
     constraints::Vector{R1CSEquation},
     special_constraints::Vector{Any},
