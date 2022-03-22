@@ -196,7 +196,7 @@ begin
         a::VariableState,
         lb::AbstractAlgebra.GFElem{BigInt},
         ub::AbstractAlgebra.GFElem{BigInt},
-        neg_bounds::Bool = false,
+        neg_bounds::Bool=false,
     )
         # lies between lb and ub
         return VariableState(a.index, true, a.unique, a.values, lb, ub, neg_bounds, a.abz)
@@ -300,8 +300,8 @@ function abstraction(
         )
             continue
         end
-        l1 = sort(collect(appearance_map_cur), by = x -> [(y[1], y[2].d) for y in x[2]])
-        l2 = sort(collect(appearance_map_orig), by = x -> [(y[1], y[2].d) for y in x[2]])
+        l1 = sort(collect(appearance_map_cur), by=x -> [(y[1], y[2].d) for y in x[2]])
+        l2 = sort(collect(appearance_map_orig), by=x -> [(y[1], y[2].d) for y in x[2]])
         if length(l1) != length(l2)
             continue
         else
@@ -375,43 +375,32 @@ end
 
 # a utility for pretty printing equations 
 function printEquation(x::R1CSEquation)
-    str1 =
-        "(" *
-        join(
-            [
-                " " * string(fix_number(x.a[key].d)) * " * x_{" * string(key) * "} "
-                for key in keys(x.a)
-            ],
-            "+",
-        ) *
-        ")"
-    str2 =
-        "(" *
-        join(
-            [
-                " " * string(fix_number(x.b[key].d)) * " * x_{" * string(key) * "} "
-                for key in keys(x.b)
-            ],
-            "+",
-        ) *
-        ")"
-    str3 = join(
-        [
-            " " * string(fix_number(x.c[key].d)) * " * x_{" * string(key) * "} "
-            for key in keys(x.c)
-        ],
-        "+",
-    )
+    function get_lin(x)
+        if length(nonzeroKeys(x)) == 0
+            return "0"
+        end
+        return "(" *
+               join(
+                   [
+                       string(fix_number(x[key].d)) * " * x_{" * string(key) * "}"
+                       for key in nonzeroKeys(x)
+                   ],
+                   " + ",
+               ) * ")"
+    end
+    str1 = get_lin(x.a)
+    str2 = get_lin(x.b)
+    str3 = get_lin(x.c)
     println(str1 * " * " * str2 * " = " * str3)
 end
 
 function solveWithTrustedFunctions(
     input_r1cs::String,
     input_r1cs_name::String;
-    trusted_r1cs::Vector{String} = Vector{String}([]),
-    trusted_r1cs_names::Vector{String} = Vector{String}([]),
-    debug::Bool = false,
-    printRes::Bool = true
+    trusted_r1cs::Vector{String}=Vector{String}([]),
+    trusted_r1cs_names::Vector{String}=Vector{String}([]),
+    debug::Bool=false,
+    printRes::Bool=true
 )
     @assert (length(trusted_r1cs) == length(trusted_r1cs_names))
     equations_main, knowns_main, outs_main = readR1CS(input_r1cs)
@@ -423,7 +412,7 @@ function solveWithTrustedFunctions(
             (trusted_r1cs_names[i], equations_trusted, knowns_trusted, outs_trusted),
         )
     end
-    function_list = sort(function_list, by = x -> -length(x[2]))
+    function_list = sort(function_list, by=x -> -length(x[2]))
     # sort functions long to short, to prevent accidentally substituting a subroutine that prevents substituting a bigger function. 
     specials = []
     reduced = equations_main
@@ -455,7 +444,7 @@ function solveWithTrustedFunctions(
                 println(
                     "R1CS function " *
                     input_r1cs_name *
-                    " has sound constraints (No trusted functions needed! ",
+                    " has sound constraints (No trusted functions needed!)",
                 )
             end
             return true
@@ -550,8 +539,8 @@ function SolveConstraintsSymbolic(
     constraints::Vector{R1CSEquation},
     special_constraints::Vector{Any},
     known_variables::Vector{Int64},
-    debug::Bool = false,
-    target_variables::Vector{Int64} = [],
+    debug::Bool=false,
+    target_variables::Vector{Int64}=[],
 )
     num_unknowns =
         [length(setdiff(getVariables(x), Set(known_variables))) for x in constraints]
