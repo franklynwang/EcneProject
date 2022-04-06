@@ -205,7 +205,7 @@ end
 
 
 # check if these two dictionaries have the same multiset of values
-function checkNonZeroKeys(
+function checkNonZeroValues(
     map1::DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}},
     map2::DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}},
 )
@@ -228,6 +228,15 @@ function checkNonZeroKeys(
     return true
 end
 
+function hash_r1cs_equation(
+    e::R1CSEquation
+)
+    l = vcat(sort!([x.d for x in values(e.a)]), sort!([x.d for x in values(e.b)]), sort!([x.d for x in values(e.c)]))
+    l = [x for x in l if x != 0]
+
+    return hash(l)
+end
+
 function abstraction(
     function_name::String,
     constraints::Array{R1CSEquation},
@@ -235,21 +244,47 @@ function abstraction(
     sub_equation::Array{R1CSEquation},
     known_outputs::Array{Base.Int64},
 )
+    println("called abstraction")
+    a = time()
+    hashed_constraints = [hash_r1cs_equation(x) for x in constraints]
+    hashed_sub_equation = [hash_r1cs_equation(x) for x in sub_equation]
+    candidates = []
+    for i in 1:length(constraints)-length(sub_equation)+1
+        matches = true
+        for j in 1:length(sub_equation)-1
+            if hashed_constraints[i+j-1] != hashed_sub_equation[j]
+                matches = false
+                break
+            end
+        end
+        if matches
+            push!(candidates, i)
+        end
+    end
+    b = time()
+    println("hash match", b - a)
+    print("candidates", length(candidates))
     matches = [] # contains index, as well as (orig_var -> new_var maps)
-    for i = 1:length(constraints)-length(sub_equation)+1
+    l2_found = false
+    l2_value = []
+    println("sub equation length ", length(sub_equation))
+    println("constraints length ", length(constraints))
+    appearance_map_orig = DefaultDict{
+        Base.Int64,
+        Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}},
+    }(Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}})
+    mx_app_counter = 0
+    for i in candidates
         # try matching starting from i. 
         works = true
+
         appearance_map_cur = DefaultDict{
-            Base.Int64,
-            Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}},
-        }(Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}})
-        appearance_map_orig = DefaultDict{
             Base.Int64,
             Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}},
         }(Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}})
         app_counter = 0
         function addEquation(eq1, eq2)
-            if !checkNonZeroKeys(eq1, eq2)
+            if !checkNonZeroValues(eq1, eq2)
                 return false
             end
             for term in eq1
@@ -258,11 +293,14 @@ function abstraction(
                     push!(appearance_map_cur[term[1]], tup)
                 end
             end
-            for term in eq2
-                if term[2] != F(0)
-                    tup = (app_counter, F(term[2]))
-                    push!(appearance_map_orig[term[1]], tup)
+            if app_counter > mx_app_counter
+                for term in eq2
+                    if term[2] != F(0)
+                        tup = (app_counter, F(term[2]))
+                        push!(appearance_map_orig[term[1]], tup)
+                    end
                 end
+                mx_app_counter = app_counter
             end
             return true
         end
@@ -294,6 +332,7 @@ function abstraction(
         )
             continue
         end
+        app_counter += 1
         if !addEquation(
             constraints[i+length(sub_equation)-1].b,
             sub_equation[length(sub_equation)].b,
@@ -301,7 +340,11 @@ function abstraction(
             continue
         end
         l1 = sort(collect(appearance_map_cur), by=x -> [(y[1], y[2].d) for y in x[2]])
+        #if l2_found
+        #    l2 = l2_value
+        #else
         l2 = sort(collect(appearance_map_orig), by=x -> [(y[1], y[2].d) for y in x[2]])
+        #end
         if length(l1) != length(l2)
             continue
         else
@@ -319,6 +362,8 @@ function abstraction(
         # first appearances check 
         push!(matches, (i, Dict(l2[x][1] => l1[x][1] for x = 1:length(l1))))
     end
+    c = time()
+    println("found matches", c - b)
     red_cons = []
     special_cons = []
     cur_idx = 1
@@ -348,6 +393,8 @@ function abstraction(
             cur_idx += 1
         end
     end
+    d = time()
+    println("solved question", d - c)
     return (special_cons), Array{R1CSEquation}(red_cons)
 end
 
@@ -400,13 +447,14 @@ function solveWithTrustedFunctions(
     trusted_r1cs::Vector{String}=Vector{String}([]),
     trusted_r1cs_names::Vector{String}=Vector{String}([]),
     debug::Bool=false,
-    printRes::Bool=true
+    printRes::Bool=true,
+    abstractionOnly::Bool=false
 )
     @assert (length(trusted_r1cs) == length(trusted_r1cs_names))
-    equations_main, knowns_main, outs_main = readR1CS(input_r1cs)
+    equations_main, knowns_main, outs_main, num_variables = readR1CS(input_r1cs)
     function_list = []
     for i = 1:length(trusted_r1cs)
-        equations_trusted, knowns_trusted, outs_trusted = readR1CS(trusted_r1cs[i])
+        equations_trusted, knowns_trusted, outs_trusted, _ = readR1CS(trusted_r1cs[i])
         push!(
             function_list,
             (trusted_r1cs_names[i], equations_trusted, knowns_trusted, outs_trusted),
@@ -417,6 +465,7 @@ function solveWithTrustedFunctions(
     specials = []
     reduced = equations_main
     for i = 1:length(function_list)
+        println("called abstraction")
         new_specials, reduced = abstraction(
             function_list[i][1],
             reduced,
@@ -427,7 +476,12 @@ function solveWithTrustedFunctions(
         # abstract all of these away. 
         append!(specials, new_specials)
     end
-    result = SolveConstraintsSymbolic(reduced, specials, knowns_main, debug, outs_main)
+
+    if abstractionOnly
+        println(specials)
+        return true
+    end
+    result = SolveConstraintsSymbolic(reduced, specials, knowns_main, debug, outs_main, num_variables)
     if result == true
         if length(function_list) != 0
             if printRes
@@ -541,6 +595,7 @@ function SolveConstraintsSymbolic(
     known_variables::Vector{Int64},
     debug::Bool=false,
     target_variables::Vector{Int64}=[],
+    num_variables::Int=-1,
 )
     num_unknowns =
         [length(setdiff(getVariables(x), Set(known_variables))) for x in constraints]
@@ -555,13 +610,14 @@ function SolveConstraintsSymbolic(
             in_queue[i] = true
         end
     end
-    num_variables = maximum([
-        maximum([
-            maximum(keys(constraints[i].a)),
-            maximum(keys(constraints[i].b)),
-            maximum(keys(constraints[i].c)),
-        ]) for i = 1:length(constraints)
-    ])
+    #num_variables = maximum([
+    #    maximum([
+    #        maximum(keys(constraints[i].a)),
+    #        maximum(keys(constraints[i].b)),
+    #        maximum(keys(constraints[i].c)),
+    #    ]) for i = 1:length(constraints)
+    #])
+    println("num variables", num_variables)
     variable_to_indices = DefaultDict{Base.Int64,Vector{Int64}}(Vector{Int64})
     for i = 1:length(constraints)
         for j in getVariables(constraints[i])
@@ -1567,7 +1623,7 @@ function readArrInt(obj)::BigInt
     return sum
 end
 
-function readR1CS(filename::String)::Tuple{Vector{R1CSEquation},Vector{Int64},Vector{Int64}}
+function readR1CS(filename::String)::Tuple{Vector{R1CSEquation},Vector{Int64},Vector{Int64},Int64}
     arr = []
     fsize = stat(filename).size
     s = open(filename, "r")
@@ -1599,6 +1655,7 @@ function readR1CS(filename::String)::Tuple{Vector{R1CSEquation},Vector{Int64},Ve
     sec_1 += 4
     prime = readArrInt(arr[sec_1:sec_1+field_size-1])
     sec_1 += field_size
+    num_wires = readFour(arr[sec_1:sec_1+3])
     sec_1 += 4
     pub_out = readFour(arr[sec_1:sec_1+3])
     sec_1 += 4
@@ -1606,7 +1663,7 @@ function readR1CS(filename::String)::Tuple{Vector{R1CSEquation},Vector{Int64},Ve
     sec_1 += 4
     priv_in = readFour(arr[sec_1:sec_1+3])
     sec_1 += 4
-    labels = readEight(arr[sec_1:sec_1+7])
+    num_labels = readEight(arr[sec_1:sec_1+7])
     sec_1 += 8
     constraints = readFour(arr[sec_1:sec_1+3])
     sec_2 = section_starts[2]
@@ -1635,9 +1692,7 @@ function readR1CS(filename::String)::Tuple{Vector{R1CSEquation},Vector{Int64},Ve
             R1CSEquation(constraint_new[1], constraint_new[2], constraint_new[3]),
         )
     end
-    return equations,
-    vcat([Int64(1)], [Int64(i) for i = 2+pub_out:1+pub_out+pub_in+priv_in]),
-    [Int64(i) for i = 2:1+pub_out]
+    return equations, vcat([Int64(1)], [Int64(i) for i = 2+pub_out:1+pub_out+pub_in+priv_in]), [Int64(i) for i = 2:1+pub_out], num_wires + 1
 end
 
 export readR1CS, SolveConstraintsSymbolic, R1CSEquation, printEquation
