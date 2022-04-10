@@ -246,10 +246,12 @@ function abstraction(
     known_outputs::Array{Base.Int64},
     printRes::Bool=false,
 )
-    #println("known inputs", known_inputs)
-    #println("called abstraction")
-    #println("big #: ", length(constraints))
-    #println("small #: ", length(sub_equation))
+    if printRes
+        println("known inputs", known_inputs)
+        println("called abstraction")
+        println("big #: ", length(constraints))
+        println("small #: ", length(sub_equation))
+    end
     a = time()
     hashed_constraints = [hash_r1cs_equation(x) for x in constraints]
     hashed_sub_equation = [hash_r1cs_equation(x) for x in sub_equation]
@@ -274,20 +276,17 @@ function abstraction(
     if printRes
         println("hash match ", b - f)
     end
-    #print("candidates", length(candidates))
     matches = [] # contains index, as well as (orig_var -> new_var maps)
-    #println("sub equation length ", length(sub_equation))
-    #println("constraints length ", length(constraints))
     appearance_map_orig = DefaultDict{
         Base.Int64,
         Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}},
     }(Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}})
     sub_eq_counter = 1
+    # one can also do this witha a Rabin-Karp Hash.
     for j = 1:length(sub_equation)
         for eq in [sub_equation[j].a, sub_equation[j].b, sub_equation[j].c]
             for term in eq
                 if term[2] != F(0)
-                    #println("term ", term[1])
                     tup = (sub_eq_counter, F(term[2]))
                     push!(appearance_map_orig[term[1]], tup)
                 end
@@ -295,9 +294,8 @@ function abstraction(
             sub_eq_counter += 1
         end
     end
-    #println("known inputs", known_inputs)
     for i in candidates
-        # try matching starting from i. 
+        # try each of the things that the hash matches. 
         works = true
         appearance_map_cur = DefaultDict{
             Base.Int64,
@@ -337,26 +335,8 @@ function abstraction(
             continue
         end
 
-        # app_counter += 1
-        # if !addEquation(
-        #     constraints[i+length(sub_equation)-1].a,
-        #     sub_equation[length(sub_equation)].a,
-        # )
-        #     continue
-        # end
-        # app_counter += 1
-        # if !addEquation(
-        #     constraints[i+length(sub_equation)-1].b,
-        #     sub_equation[length(sub_equation)].b,
-        # )
-        #     continue
-        # end
         l1 = sort(collect(appearance_map_cur), by=x -> [(y[1], y[2].d) for y in x[2]])
-        #if l2_found
-        #    l2 = l2_value
-        #else
         l2 = sort(collect(appearance_map_orig), by=x -> [(y[1], y[2].d) for y in x[2]])
-        #end
         if length(l1) != length(l2)
             continue
         else
