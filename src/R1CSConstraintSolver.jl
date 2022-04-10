@@ -5,6 +5,7 @@ using Combinatorics
 using DataStructures
 using Profile
 using Dates
+using JSON
 
 
 const bjj_p =
@@ -243,11 +244,19 @@ function abstraction(
     known_inputs::Array{Base.Int64},
     sub_equation::Array{R1CSEquation},
     known_outputs::Array{Base.Int64},
+    printRes::Bool=false,
 )
-    println("called abstraction")
+    #println("known inputs", known_inputs)
+    #println("called abstraction")
+    #println("big #: ", length(constraints))
+    #println("small #: ", length(sub_equation))
     a = time()
     hashed_constraints = [hash_r1cs_equation(x) for x in constraints]
     hashed_sub_equation = [hash_r1cs_equation(x) for x in sub_equation]
+    f = time()
+    if printRes
+        println("compute hash ", f - a)
+    end
     candidates = []
     for i in 1:length(constraints)-length(sub_equation)+1
         matches = true
@@ -262,22 +271,34 @@ function abstraction(
         end
     end
     b = time()
-    println("hash match", b - a)
-    print("candidates", length(candidates))
+    if printRes
+        println("hash match ", b - f)
+    end
+    #print("candidates", length(candidates))
     matches = [] # contains index, as well as (orig_var -> new_var maps)
-    l2_found = false
-    l2_value = []
-    println("sub equation length ", length(sub_equation))
-    println("constraints length ", length(constraints))
+    #println("sub equation length ", length(sub_equation))
+    #println("constraints length ", length(constraints))
     appearance_map_orig = DefaultDict{
         Base.Int64,
         Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}},
     }(Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}})
-    mx_app_counter = 0
+    sub_eq_counter = 1
+    for j = 1:length(sub_equation)
+        for eq in [sub_equation[j].a, sub_equation[j].b, sub_equation[j].c]
+            for term in eq
+                if term[2] != F(0)
+                    #println("term ", term[1])
+                    tup = (sub_eq_counter, F(term[2]))
+                    push!(appearance_map_orig[term[1]], tup)
+                end
+            end
+            sub_eq_counter += 1
+        end
+    end
+    #println("known inputs", known_inputs)
     for i in candidates
         # try matching starting from i. 
         works = true
-
         appearance_map_cur = DefaultDict{
             Base.Int64,
             Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}},
@@ -293,18 +314,9 @@ function abstraction(
                     push!(appearance_map_cur[term[1]], tup)
                 end
             end
-            if app_counter > mx_app_counter
-                for term in eq2
-                    if term[2] != F(0)
-                        tup = (app_counter, F(term[2]))
-                        push!(appearance_map_orig[term[1]], tup)
-                    end
-                end
-                mx_app_counter = app_counter
-            end
             return true
         end
-        for j = 1:length(sub_equation)-1
+        for j = 1:length(sub_equation)
             app_counter += 1
             if !addEquation(constraints[i+j-1].a, sub_equation[j].a)
                 works = false
@@ -325,20 +337,20 @@ function abstraction(
             continue
         end
 
-        app_counter += 1
-        if !addEquation(
-            constraints[i+length(sub_equation)-1].a,
-            sub_equation[length(sub_equation)].a,
-        )
-            continue
-        end
-        app_counter += 1
-        if !addEquation(
-            constraints[i+length(sub_equation)-1].b,
-            sub_equation[length(sub_equation)].b,
-        )
-            continue
-        end
+        # app_counter += 1
+        # if !addEquation(
+        #     constraints[i+length(sub_equation)-1].a,
+        #     sub_equation[length(sub_equation)].a,
+        # )
+        #     continue
+        # end
+        # app_counter += 1
+        # if !addEquation(
+        #     constraints[i+length(sub_equation)-1].b,
+        #     sub_equation[length(sub_equation)].b,
+        # )
+        #     continue
+        # end
         l1 = sort(collect(appearance_map_cur), by=x -> [(y[1], y[2].d) for y in x[2]])
         #if l2_found
         #    l2 = l2_value
@@ -363,7 +375,9 @@ function abstraction(
         push!(matches, (i, Dict(l2[x][1] => l1[x][1] for x = 1:length(l1))))
     end
     c = time()
-    println("found matches", c - b)
+    if printRes
+        println("found matches ", c - b)
+    end
     red_cons = []
     special_cons = []
     cur_idx = 1
@@ -376,11 +390,14 @@ function abstraction(
         ]) for i = 1:length(constraints)
     ])
     while i <= length(constraints)
+        #println(i)
         if ((cur_idx > length(matches)) || (i != matches[cur_idx][1]))
             push!(red_cons, constraints[i])
             i += 1
         else
             # the transformed inputs / outputs under matches[cur_idx][2]. 
+            #println("known inputs", known_inputs)
+            #println("known outputs", known_outputs)
             push!(
                 special_cons,
                 (
@@ -394,7 +411,10 @@ function abstraction(
         end
     end
     d = time()
-    println("solved question", d - c)
+    if printRes
+        println("solved question ", d - c)
+        println("abstractions found ", length(special_cons))
+    end
     return (special_cons), Array{R1CSEquation}(red_cons)
 end
 
@@ -441,6 +461,50 @@ function printEquation(x::R1CSEquation)
     println(str1 * " * " * str2 * " = " * str3)
 end
 
+function readJSON(filename::String)
+    dict = Dict()
+    open(filename, "r") do f
+        global dict
+        dicttxt = readall(f)  # file information to string
+        dict = JSON.parse(dicttxt)  # parse and transform data
+    end
+    return dict["constraints"], vcat([Int64(1)], [Int64(i) for i = 2+dict["nOutputs"]:1+dict["nOutputs"]+dict["nPubInputs"]+dict["nPrivInputs"]]), [Int64(i) for i = 2:1+dict["nOutputs"]], dict["nVars"]
+end
+
+function solveJSON(filename::String, debug::Bool)
+    constraints, known_inputs, known_outputs, nVars = readJSON(filename)
+    result = SolveConstraintsSymbolic(constraints, [], known_inputs, debug, known_outputs, nVars)
+    if result == true
+        if length(function_list) != 0
+            if printRes
+                println(
+                    "R1CS function " *
+                    input_r1cs_name *
+                    " has sound constraints assuming trusted functions " *
+                    join([trusted_r1cs_names[i] for i = 1:length(function_list)], ", "),
+                )
+            end
+            return true
+        else
+            if printRes
+                println(
+                    "R1CS function " *
+                    input_r1cs_name *
+                    " has sound constraints (No trusted functions needed!)",
+                )
+            end
+            return true
+        end
+    else
+        if printRes
+            println(
+                "R1CS function " * input_r1cs_name * " has potentially unsound constraints",
+            )
+        end
+        return false
+    end
+end
+
 function solveWithTrustedFunctions(
     input_r1cs::String,
     input_r1cs_name::String;
@@ -465,7 +529,9 @@ function solveWithTrustedFunctions(
     specials = []
     reduced = equations_main
     for i = 1:length(function_list)
-        println("called abstraction")
+        if printRes
+            println("called abstraction")
+        end
         new_specials, reduced = abstraction(
             function_list[i][1],
             reduced,
@@ -488,7 +554,7 @@ function solveWithTrustedFunctions(
                 println(
                     "R1CS function " *
                     input_r1cs_name *
-                    " has sound constraints assuming trusted functions" *
+                    " has sound constraints assuming trusted functions " *
                     join([trusted_r1cs_names[i] for i = 1:length(function_list)], ", "),
                 )
             end
@@ -617,7 +683,7 @@ function SolveConstraintsSymbolic(
     #        maximum(keys(constraints[i].c)),
     #    ]) for i = 1:length(constraints)
     #])
-    println("num variables", num_variables)
+    #println("num variables", num_variables)
     variable_to_indices = DefaultDict{Base.Int64,Vector{Int64}}(Vector{Int64})
     for i = 1:length(constraints)
         for j in getVariables(constraints[i])
@@ -1592,10 +1658,10 @@ function SolveConstraintsSymbolic(
         if !display_eq[i]
             continue
         end
-        println("constraint #", i)
-        printEquation(constraints[i])
+        #println("constraint #", i)
+        #printEquation(constraints[i])
         for u in getVariables(constraints[i])
-            println(variable_states[u])
+            #println(variable_states[u])
         end
     end
     return false
