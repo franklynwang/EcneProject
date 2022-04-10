@@ -1,0 +1,7 @@
+[ecdsa_r1cs]
+git-tree-sha1 = "ff0c268449a54b7b6b0b6ecfa1b726de717bf676"
+lazy = true
+
+    [[ecdsa_r1cs.download]]
+    url = "https://github.com/franklynwang/EcneProject/blob/master/ecdsa_r1cs.tar.gz"
+    sha256 = "522eba8d064cce4ed9d3a03db6d032ca34e1b710bbcf16e4033953aa4a2ec6ad"
