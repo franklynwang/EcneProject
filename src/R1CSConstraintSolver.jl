@@ -6,7 +6,7 @@ using DataStructures
 using Profile
 using Dates
 using JSON
-
+using CSV
 
 const bjj_p =
     BigInt(21888242871839275222246405745257275088548364400416034343698204186575808495617)
@@ -421,7 +421,7 @@ function fix_number(x::BigInt)
 end
 
 # a utility for pretty printing equations 
-function printEquation(x::R1CSEquation)
+function printEquation(x::R1CSEquation, index_to_signal::Array{String,1})
     function get_lin(x)
         if length(nonzeroKeys(x)) == 0
             return "0"
@@ -429,7 +429,7 @@ function printEquation(x::R1CSEquation)
         return "(" *
                join(
                    [
-                       string(fix_number(x[key].d)) * " * x_{" * string(key) * "}"
+                       string(fix_number(x[key].d)) * " * " * string(index_to_signal[key-1]) * ""
                        for key in nonzeroKeys(x)
                    ],
                    " + ",
@@ -487,6 +487,7 @@ end
 
 function solveWithTrustedFunctions(
     input_r1cs::String,
+    input_sym::String,
     input_r1cs_name::String;
     trusted_r1cs::Vector{String}=Vector{String}([]),
     trusted_r1cs_names::Vector{String}=Vector{String}([]),
@@ -527,7 +528,7 @@ function solveWithTrustedFunctions(
         println(specials)
         return true
     end
-    result = SolveConstraintsSymbolic(reduced, specials, knowns_main, debug, outs_main, num_variables)
+    result = SolveConstraintsSymbolic(reduced, specials, knowns_main, debug, outs_main, num_variables, input_sym)
     if result == true
         if length(function_list) != 0
             if printRes
@@ -642,6 +643,7 @@ function SolveConstraintsSymbolic(
     debug::Bool=false,
     target_variables::Vector{Int64}=[],
     num_variables::Int=-1,
+    input_sym::String="default.sym"
 )
     num_unknowns =
         [length(setdiff(getVariables(x), Set(known_variables))) for x in constraints]
@@ -1622,6 +1624,15 @@ function SolveConstraintsSymbolic(
     end
     ## in this case, we solved for all the target variables, which means that we're in good shape. 
 
+    ## parse sym file with csv reader
+    
+    csv_reader = CSV.File(input_sym; header=["i1", "i2", "i3", "signal"], skipto=0)
+    index_to_signal = String[]
+
+    for row in csv_reader
+       push!(index_to_signal ,"$(row.signal)")
+    end     
+
     for i = 1:length(constraints)
         all_unique = true
         for var in getVariables(constraints[i])
@@ -1638,10 +1649,10 @@ function SolveConstraintsSymbolic(
         if !display_eq[i]
             continue
         end
-        #println("constraint #", i)
-        #printEquation(constraints[i])
+        println("constraint #", i)
+        printEquation(constraints[i], index_to_signal)
         for u in getVariables(constraints[i])
-            #println(variable_states[u])
+            println(variable_states[u])
         end
     end
     return false
