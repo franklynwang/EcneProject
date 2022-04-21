@@ -26,6 +26,11 @@ end
     @test solveWithTrustedFunctions("../tornadocash_circuits/merkleTree.r1cs", "MerkleTreeChecker", printRes=false)
 end
 
+@testset "TornadoCash withdraw circuits" begin
+    @test solveWithTrustedFunctions("../tornadocash_circuits/withdraw.r1cs", "Withdraw", trusted_r1cs=["../tornadocash_circuits/Pedersen248@pedersen.r1cs", "../tornadocash_circuits/Pedersen496@pedersen.r1cs"], trusted_r1cs_names=["Pedersen248", "Pedersen496"], printRes=false)
+end
+
+
 @testset "secpAddUnequal given BigMultModP, BigLessThan" begin
     @test solveWithTrustedFunctions("../secp256k1.r1cs", "secpAddUnequal", trusted_r1cs=["../bigmultmodp.r1cs", "../biglessthan.r1cs"], trusted_r1cs_names=["BigMultModP", "BigLessThan"], printRes=false)
 end
