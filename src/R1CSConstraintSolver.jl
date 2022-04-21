@@ -6,6 +6,7 @@ using DataStructures
 using Profile
 using Dates
 using JSON
+using ProgressMeter
 
 
 const bjj_p =
@@ -399,15 +400,23 @@ function abstraction(
 end
 
 function printState(x::VariableState)
+    bounds = [x.lb.d, x.ub.d]
+    if bounds[1] == 0 && bounds[2] == 21888242871839275222246405745257275088548364400416034343698204186575808495616
+        bounds = []
+    end
     println(
         "idx: ",
         x.index,
-        " unique: ",
-        x.unique,
-        " values: ",
+        "\n",
+        #" unique: ",
+        #x.unique,
+        #"\n",
+        " All possible values: ",
         [val.d for val in x.values],
+        "\n",
         " bounds: ",
-        [x.lb.d, x.ub.d],
+        bounds,
+        "\n",
     )
 end
 
@@ -492,7 +501,8 @@ function solveWithTrustedFunctions(
     trusted_r1cs_names::Vector{String}=Vector{String}([]),
     debug::Bool=false,
     printRes::Bool=true,
-    abstractionOnly::Bool=false
+    abstractionOnly::Bool=false,
+    secp_solve::Bool=false
 )
     @assert (length(trusted_r1cs) == length(trusted_r1cs_names))
     equations_main, knowns_main, outs_main, num_variables = readR1CS(input_r1cs)
@@ -503,6 +513,9 @@ function solveWithTrustedFunctions(
             function_list,
             (trusted_r1cs_names[i], equations_trusted, knowns_trusted, outs_trusted),
         )
+    end
+    if debug
+        println("file read")
     end
     function_list = sort(function_list, by=x -> -length(x[2]))
     # sort functions long to short, to prevent accidentally substituting a subroutine that prevents substituting a bigger function. 
@@ -527,7 +540,7 @@ function solveWithTrustedFunctions(
         println(specials)
         return true
     end
-    result = SolveConstraintsSymbolic(reduced, specials, knowns_main, debug, outs_main, num_variables)
+    result = SolveConstraintsSymbolic(reduced, specials, knowns_main, debug, outs_main, num_variables, secp_solve)
     if result == true
         if length(function_list) != 0
             if printRes
@@ -642,12 +655,31 @@ function SolveConstraintsSymbolic(
     debug::Bool=false,
     target_variables::Vector{Int64}=[],
     num_variables::Int=-1,
+    secp_solve::Bool=false,
 )
     num_unknowns =
         [length(setdiff(getVariables(x), Set(known_variables))) for x in constraints]
     in_queue = [false for x = 1:length(constraints)]
     equation_solved = [false for x in constraints]
     special_solved = [false for x in special_constraints]
+    all_nontrivial_vars = Set()
+    l = []
+    for i in constraints
+        for j in getVariables(i)
+            push!(l, j)
+        end
+    end
+    for i in special_constraints
+        for j in i[2]
+            push!(l, j)
+        end
+        for j in i[3]
+            push!(l, j)
+        end
+    end
+    all_nontrivial_vars = Set(l)
+    println("all var length")
+    println(length(all_nontrivial_vars))
 
     q = Queue{Int64}()
     for i = 1:length(constraints)
@@ -670,46 +702,47 @@ function SolveConstraintsSymbolic(
             append!(variable_to_indices[j], i)
         end
     end
+    if secp_solve
+        # create a disjoint-set data structure for representing equal variables. 
+        dsu = DataStructures.IntDisjointSet(num_variables)
+        const_vals = Dict{BigInt,Int}()
 
-    # create a disjoint-set data structure for representing equal variabes. 
-    dsu = DataStructures.IntDisjointSet(num_variables)
-    const_vals = Dict{BigInt,Int}()
-
-    for eq in constraints
-        if length(nonzeroKeys(eq.a)) == 0 && length(nonzeroKeys(eq.b)) == 0
-            if length(eq.c) == 2
-                target_values = sort([1, bjj_p - 1])
-                # check if the equation is x == y
-                if sort([x.d for x in values(eq.c)]) == target_values
-                    l = []
-                    for i in nonzeroKeys(eq.c)
-                        append!(l, i)
-                    end
-                    union!(dsu, l[1], l[2])
-                else
-                    # check if the equation is of the form ax == b. 
-                    l = []
-                    constant_val = false
-                    for i in nonzeroKeys(eq.c)
-                        append!(l, i)
-                        if i == 1
-                            constant_val = true
+        for eq in constraints
+            if length(nonzeroKeys(eq.a)) == 0 && length(nonzeroKeys(eq.b)) == 0
+                if length(eq.c) == 2
+                    target_values = sort([1, bjj_p - 1])
+                    # check if the equation is x == y
+                    if sort([x.d for x in values(eq.c)]) == target_values
+                        l = []
+                        for i in nonzeroKeys(eq.c)
+                            append!(l, i)
                         end
-                    end
-                    non_one_value = l[1]
-                    if l[1] == 1
-                        non_one_value = l[2]
-                    end
+                        union!(dsu, l[1], l[2])
+                    else
+                        # check if the equation is of the form ax == b. 
+                        l = []
+                        constant_val = false
+                        for i in nonzeroKeys(eq.c)
+                            append!(l, i)
+                            if i == 1
+                                constant_val = true
+                            end
+                        end
+                        non_one_value = l[1]
+                        if l[1] == 1
+                            non_one_value = l[2]
+                        end
 
-                    if !constant_val
-                        continue
+                        if !constant_val
+                            continue
+                        end
+                        value = divexact(eq.c[1], -eq.c[non_one_value])
+                        if !(value.d in keys(const_vals))
+                            elem = push!(dsu)
+                            const_vals[value.d] = elem
+                        end
+                        union!(dsu, non_one_value, const_vals[value.d])
                     end
-                    value = divexact(eq.c[1], -eq.c[non_one_value])
-                    if !(value.d in keys(const_vals))
-                        elem = push!(dsu)
-                        const_vals[value.d] = elem
-                    end
-                    union!(dsu, non_one_value, const_vals[value.d])
                 end
             end
         end
@@ -835,7 +868,10 @@ function SolveConstraintsSymbolic(
         end
 
         a = Dates.now()
+        prog = ProgressUnknown("Mode 1:")
+
         while length(q) >= 1
+            ProgressMeter.next!(prog)
             if debug
                 if (num_unique % 1000 == 0)
                     println("num_unique ", num_unique)
@@ -1586,20 +1622,28 @@ function SolveConstraintsSymbolic(
             println("Successful steps after isZero: ", successful_steps)
         end
     end
+    #println("Appearing variables", length(all_vars))
+
+
     unique_variables = 0
-    for i = 1:num_variables
-        if variable_states[i].unique
+    for i = 1:length(variable_states)
+        if (variable_states[i].unique) && (i in all_nontrivial_vars)
             unique_variables += 1
         end
     end
-    if debug
+    if true
         println(
             "Solved for ",
             unique_variables,
             " variables out of ",
-            num_variables,
+            length(all_nontrivial_vars),
             " total variables",
         )
+    end
+    if debug
+        for i in all_nontrivial_vars
+            printState(variable_states[i])
+        end
     end
     target_unique = 0
     for i in target_variables
@@ -1638,8 +1682,6 @@ function SolveConstraintsSymbolic(
         if !display_eq[i]
             continue
         end
-        #println("constraint #", i)
-        #printEquation(constraints[i])
         for u in getVariables(constraints[i])
             #println(variable_states[u])
         end
@@ -1652,7 +1694,7 @@ function readFour(obj)::UInt32
     return obj[1] + obj[2] * 2^8 + obj[3] * 2^16 + obj[4] * 2^24
 end
 
-function readEight(obj)::UInt32
+function readEight(obj)::UInt64
     @assert length(obj) == 8
     sum = 0
     for i = 1:8
@@ -1683,12 +1725,16 @@ function readR1CS(filename::String)::Tuple{Vector{R1CSEquation},Vector{Int64},Ve
     cur_idx += 4
     @assert sections == 3
     section_starts = [0, 0, 0]
+    #println("first part of arr ", arr[1:100])
+    #println("mid arr ", arr[cur_idx:cur_idx+11])
     for i = 1:sections
+        #println("cur_idx ", cur_idx)
         cur_section = readFour(arr[cur_idx:cur_idx+3])
         @assert 1 <= cur_section <= 3
         section_starts[cur_section] = cur_idx
         cur_idx += 4
-        sz = readEight(arr[cur_idx:cur_idx+7])
+        #println("array length ", arr[cur_idx:cur_idx+7])
+        sz = readArrInt(arr[cur_idx:cur_idx+7])
         cur_idx += (sz + 8)
     end
     ## parse first section
@@ -1715,7 +1761,7 @@ function readR1CS(filename::String)::Tuple{Vector{R1CSEquation},Vector{Int64},Ve
     sec_2 = section_starts[2]
     sec_2 += 12
     equations = []
-    for _ = 1:constraints
+    @showprogress 1 "Reading Constraints" for _ = 1:constraints
         constraint_new = []
         for _ = 1:3
             num_elements = readFour(arr[sec_2:sec_2+3])
