@@ -655,7 +655,7 @@ function SolveConstraintsSymbolic(
     debug::Bool=false,
     target_variables::Vector{Int64}=[],
     num_variables::Int=-1,
-    input_sym::String="default.sym"
+    input_sym::String="default.sym",
     secp_solve::Bool=false,
 )
     num_unknowns =
