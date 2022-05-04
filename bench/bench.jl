@@ -11,19 +11,7 @@ macro run_bench(name, expr, args...)
 end
 
 @run_bench "Trivial Multiplication Benchmark" begin
-    @assert solveWithTrustedFunctions("trivial_mult.r1cs", "*", printRes = false)
-end
-
-@run_bench "Big Mult Benchmark" begin
-    @assert solveWithTrustedFunctions("bigmult86_3.r1cs", "bigmult(86,3)", printRes = false)
-end
-
-@run_bench "Poseidon Benchmark" begin
-    @assert solveWithTrustedFunctions("poseidon.r1cs", "poseidon", printRes = false)
-end
-
-@run_bench "3x3 multiplexer Benchmark" begin
-    @assert solveWithTrustedFunctions("multiplexer_33.r1cs", "multiplexer(3,3)", printRes = false)
+    solveWithTrustedFunctions("target/division.r1cs", "target/division.sym", "division")
 end
 
 
