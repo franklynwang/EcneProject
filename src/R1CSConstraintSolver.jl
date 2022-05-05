@@ -75,7 +75,7 @@ function solveWithTrustedFunctions(
     json_result::Dict{String, Any};
     trusted_r1cs::Vector{String}=Vector{String}([]),
     trusted_r1cs_names::Vector{String}=Vector{String}([]),
-    debug::Bool=true,
+    debug::Bool=false,
     printRes::Bool=true,
     abstractionOnly::Bool=false,
     secp_solve::Bool=false
