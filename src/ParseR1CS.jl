@@ -191,7 +191,7 @@ function printEquation(x::R1CSEquation, index_to_signal::Array{String,1})
     str1 = get_lin(x.a)
     str2 = get_lin(x.b)
     str3 = get_lin(x.c)
-    println(str1 * " * " * str2 * " = " * str3)
+    return (str1 * " * " * str2 * " = " * str3)
 end
 
 export readFour, readEight, readArrInt, readR1CS, R1CSEquation, getVariables, hash_r1cs_equation, printEquation, nonzeroKeys

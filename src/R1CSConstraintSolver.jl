@@ -71,7 +71,8 @@ end
 function solveWithTrustedFunctions(
     input_r1cs::String,
     input_sym::String,
-    input_r1cs_name::String;
+    input_r1cs_name::String,
+    json_result::Dict{String, Any};
     trusted_r1cs::Vector{String}=Vector{String}([]),
     trusted_r1cs_names::Vector{String}=Vector{String}([]),
     debug::Bool=true,
@@ -79,6 +80,7 @@ function solveWithTrustedFunctions(
     abstractionOnly::Bool=false,
     secp_solve::Bool=false
 )
+
     @assert (length(trusted_r1cs) == length(trusted_r1cs_names))
     equations_main, knowns_main, outs_main, num_variables = readR1CS(input_r1cs)
     function_list = []
@@ -115,33 +117,39 @@ function solveWithTrustedFunctions(
         println(specials)
         return true
     end
-    result = SolveConstraintsSymbolic(reduced, specials, knowns_main, debug, outs_main, num_variables, input_sym, secp_solve)
+    result = SolveConstraintsSymbolic(reduced, specials, knowns_main, debug, outs_main, num_variables, input_sym, secp_solve, json_result)
     if result == true
         if length(function_list) != 0
             if printRes
-                println(
+                msg = (
                     "R1CS function " *
                     input_r1cs_name *
                     " has sound constraints assuming trusted functions " *
                     join([trusted_r1cs_names[i] for i = 1:length(function_list)], ", "),
                 )
+                println(msg)
+                json_result["result"] = msg
             end
             return true
         else
             if printRes
-                println(
+                msg = (
                     "R1CS function " *
                     input_r1cs_name *
                     " has sound constraints (No trusted functions needed!)",
                 )
+                println(msg)
+                json_result["result"] = msg
             end
             return true
         end
     else
         if printRes
-            println(
+            msg = (
                 "R1CS function " * input_r1cs_name * " has potentially unsound constraints",
             )
+            println(msg)
+            json_result["result"] = msg
         end
         return false
     end
@@ -156,6 +164,7 @@ function SolveConstraintsSymbolic(
     num_variables::Int=-1,
     input_sym::String="default.sym",
     secp_solve::Bool=false,
+    json_result::Dict{String, Any}=Dict("result" => "empty", "constraints" => ["empty"]),
 )
     num_unknowns =
         [length(setdiff(getVariables(x), Set(known_variables))) for x in constraints]
@@ -1175,6 +1184,9 @@ function SolveConstraintsSymbolic(
        push!(index_to_signal ,"$(row.signal)")
     end     
 
+    # remove first entry
+    pop!(json_result["constraints"])
+
     for i = 1:length(constraints)
         all_unique = true
         for var in getVariables(constraints[i])
@@ -1192,7 +1204,9 @@ function SolveConstraintsSymbolic(
             continue
         end
         println("constraint #", i)
-        printEquation(constraints[i], index_to_signal)
+        println(printEquation(constraints[i], index_to_signal))
+        
+        push!(json_result["constraints"], printEquation(constraints[i], index_to_signal))
     end
     return false
 end
