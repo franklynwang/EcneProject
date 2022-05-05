@@ -404,19 +404,19 @@ function printState(x::VariableState)
         bounds = []
     end
     println(
-        "idx: ",
-        x.index,
-        "\n",
-        #" unique: ",
-        #x.unique,
-        #"\n",
-        " All possible values: ",
-        [val.d for val in x.values],
-        "\n",
-        " bounds: ",
-        bounds,
-        "\n",
+        "Uniquely Determined: ",
+        x.unique)
+
+    if bounds == []
+        println("Bounds: None")
+    else
+        println("Bounds: [", bounds[1], ", ", bounds[2], "]")
+    end
+    println(
+        "All possible values: ",
+        [val.d for val in x.values]
     )
+
 end
 
 function fix_number(x::BigInt)
@@ -434,10 +434,17 @@ function printEquation(x::R1CSEquation, index_to_signal::Array{String,1})
         if length(nonzeroKeys(x)) == 0
             return "0"
         end
+        function fix_signal(key)
+            if key > 0
+                return index_to_signal[key]
+            else
+                return 1
+            end
+        end
         return "(" *
                join(
                    [
-                       string(fix_number(x[key].d)) * " * " * string(index_to_signal[key-1]) * ""
+                       string(fix_number(x[key].d)) * " * " * string(fix_signal(key - 1)) * ""
                        for key in nonzeroKeys(x)
                    ],
                    " + ",
@@ -495,13 +502,13 @@ end
 
 function solveWithTrustedFunctions(
     input_r1cs::String,
-    input_sym::String,
     input_r1cs_name::String;
     trusted_r1cs::Vector{String}=Vector{String}([]),
     trusted_r1cs_names::Vector{String}=Vector{String}([]),
     debug::Bool=false,
     printRes::Bool=true,
     abstractionOnly::Bool=false,
+    input_sym::String="",
     secp_solve::Bool=false
 )
     @assert (length(trusted_r1cs) == length(trusted_r1cs_names))
@@ -655,7 +662,7 @@ function SolveConstraintsSymbolic(
     debug::Bool=false,
     target_variables::Vector{Int64}=[],
     num_variables::Int=-1,
-    input_sym::String="default.sym"
+    input_sym::String="default.sym",
     secp_solve::Bool=false,
 )
     num_unknowns =
@@ -1623,8 +1630,6 @@ function SolveConstraintsSymbolic(
             println("Successful steps after isZero: ", successful_steps)
         end
     end
-    #println("Appearing variables", length(all_vars))
-
 
     unique_variables = 0
     for i = 1:length(variable_states)
@@ -1662,19 +1667,20 @@ function SolveConstraintsSymbolic(
             " total variables",
         )
     end
+    function_good = false
     if target_unique == length(target_variables)
-        return true
+        function_good = true
     end
     ## in this case, we solved for all the target variables, which means that we're in good shape. 
 
     ## parse sym file with csv reader
-    
+
     csv_reader = CSV.File(input_sym; header=["i1", "i2", "i3", "signal"], skipto=0)
     index_to_signal = String[]
 
     for row in csv_reader
-       push!(index_to_signal ,"$(row.signal)")
-    end     
+        push!(index_to_signal, "$(row.signal)")
+    end
 
     for i = 1:length(constraints)
         all_unique = true
@@ -1686,16 +1692,33 @@ function SolveConstraintsSymbolic(
         if all_unique
             continue
         end
-        if equation_solved[i]
-            continue
-        end
-        if !display_eq[i]
-            continue
-        end
+        #if equation_solved[i]
+        #    continue
+        #end
+        #if !display_eq[i]
+        #    continue
+        #end
         println("constraint #", i)
         printEquation(constraints[i], index_to_signal)
+        for j in getVariables(constraints[i])
+            if j == 1
+                continue
+            end
+            if length(getVariables(constraints[i])) > 3
+                continue
+            end
+            println(index_to_signal[j-1])
+            printState(variable_states[j])
+        end
     end
-    return false
+    for i in all_nontrivial_vars
+        if i == 1
+            continue
+        end
+        println(index_to_signal[i-1])
+        printState(variable_states[i])
+    end
+    return function_good
 end
 
 function readFour(obj)::UInt32
