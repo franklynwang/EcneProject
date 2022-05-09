@@ -26,8 +26,10 @@ function main(args)
 
     parsed_args = parse_args(args, s)
 
+    dict = Dict("result" => "empty", "constraints" => ["empty"])
+
     try
-        solveWithTrustedFunctions(parsed_args["r1cs"], parsed_args["sym"], parsed_args["name"])
+        solveWithTrustedFunctions(parsed_args["r1cs"], parsed_args["sym"], parsed_args["name"], dict)
     catch e
         println("Error while running solveWithTrustedFunctions", e)
     end

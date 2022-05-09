@@ -70,6 +70,49 @@ To verify the correctness of the SECP circuit given BigMultModP and BigLessThan,
 
 To see benchmarks on several circuits, run `just bench`.
 
+### Command line client and REST API 
+
+The `src/` directory contains a Julia script that can be used to invoke Ecne from
+the command line:
+
+```
+$ julia --project=. src/Ecne.jl --help
+
+usage: Ecne.jl --r1cs R1CS --name NAME --sym SYM [--trusted TRUSTED]
+               [-h]
+
+Ecne command-line helper
+
+optional arguments:
+  --r1cs R1CS        de-optimized R1CS file to verify
+  --name NAME        Circuit name
+  --sym SYM          symbol file with labels
+  --trusted TRUSTED  Optional trusted R1CS file
+  -h, --help         show this help message and exit
+
+```
+
+With a R1CS file that has been de-optimizedi and its symbol file, Ecne can be invoked via:
+
+```
+$ julia --project=. src/Ecne.jl --r1cs target/division.r1cs --name division --sym target/division.sym
+
+[...]
+
+constraint #2
+(-1 * main.y2) * (1 * main.x3) = (-1 * main.y1)
+constraint #3
+0 * 0 = (-1 * main.x4 + -1 * main.out + 1 * main.y2)
+("R1CS function division has potentially unsound constraints",)
+
+```
+
+Moreover, external tools can trigger verifications via the REST API defined at `src/Server.jl`. You can find an example at scripts/launch_post.sh:
+
+```
+curl -X POST http://127.0.0.1:8000/verify -H 'Content-Type: application/json' -d '{"r1cs":"target/division.r1cs","sym":"target/division.sym", "id":"division"}'
+```
+
 ## Authorship
 
 Made by [Franklyn Wang](https://twitter.com/franklyn_wang)
