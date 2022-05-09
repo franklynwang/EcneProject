@@ -18,11 +18,11 @@ using .ParseR1CS
 using .Math
 using .VariableStateStructure
 using .Utility
-
 const bjj_p =
     BigInt(21888242871839275222246405745257275088548364400416034343698204186575808495617)
 
 F = AbstractAlgebra.GF(bjj_p)
+
 
 function readJSON(filename::String)
     dict = Dict()
@@ -78,6 +78,7 @@ function solveWithTrustedFunctions(
     debug::Bool=false,
     printRes::Bool=true,
     abstractionOnly::Bool=false,
+    input_sym::String="",
     secp_solve::Bool=false
 )
 
@@ -1131,8 +1132,6 @@ function SolveConstraintsSymbolic(
             println("Successful steps after isZero: ", successful_steps)
         end
     end
-    #println("Appearing variables", length(all_vars))
-
 
     unique_variables = 0
     for i = 1:length(variable_states)
@@ -1170,19 +1169,20 @@ function SolveConstraintsSymbolic(
             " total variables",
         )
     end
+    function_good = false
     if target_unique == length(target_variables)
-        return true
+        function_good = true
     end
     ## in this case, we solved for all the target variables, which means that we're in good shape. 
 
     ## parse sym file with csv reader
-    
+
     csv_reader = CSV.File(input_sym; header=["i1", "i2", "i3", "signal"], skipto=0)
     index_to_signal = String[]
 
     for row in csv_reader
-       push!(index_to_signal ,"$(row.signal)")
-    end     
+        push!(index_to_signal, "$(row.signal)")
+    end
 
     # remove first entry
     pop!(json_result["constraints"])
@@ -1197,10 +1197,27 @@ function SolveConstraintsSymbolic(
         if all_unique
             continue
         end
-        if equation_solved[i]
-            continue
+        #if equation_solved[i]
+        #    continue
+        #end
+        #if !display_eq[i]
+        #    continue
+        #end
+        println("constraint #", i)
+        printEquation(constraints[i], index_to_signal)
+        for j in getVariables(constraints[i])
+            if j == 1
+                continue
+            end
+            if length(getVariables(constraints[i])) > 3
+                continue
+            end
+            println(index_to_signal[j-1])
+            printState(variable_states[j])
         end
-        if !display_eq[i]
+    end
+    for i in all_nontrivial_vars
+        if i == 1
             continue
         end
         println("constraint #", i)
@@ -1208,7 +1225,7 @@ function SolveConstraintsSymbolic(
         
         push!(json_result["constraints"], printEquation(constraints[i], index_to_signal))
     end
-    return false
+    return function_good
 end
 
 
