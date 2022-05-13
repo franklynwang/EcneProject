@@ -23,6 +23,437 @@ const bjj_p =
 
 F = AbstractAlgebra.GF(bjj_p)
 
+function nonzeroKeys(lin_term::DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}})
+    nzero = Set()
+    for i in keys(lin_term)
+        if lin_term[i] != F(0)
+            push!(nzero, i)
+        end
+    end
+    return nzero
+end
+
+function getVariables(equation::R1CSEquation)
+    s = Set()
+    for i in keys(equation.a)
+        if equation.a[i] != F(0)
+            push!(s, i)
+        end
+    end
+
+    for i in keys(equation.b)
+        if equation.b[i] != F(0)
+            push!(s, i)
+        end
+    end
+
+    for i in keys(equation.c)
+        if equation.c[i] != F(0)
+            push!(s, i)
+        end
+    end
+    return s
+end
+
+function squareRoot(
+    field::AbstractAlgebra.GFField{BigInt},
+    a::AbstractAlgebra.GFElem{BigInt},
+)::AbstractAlgebra.GFElem{BigInt}
+    if a == 0
+        return 0
+    end
+    m = bjj_p
+    e = 0
+    q = m - 1
+    while (q % 2 == 0)
+        e += 1
+        q = div(q, 2)
+    end
+    pow2 = 2^(e - 1)
+    z = 1
+    while true
+        x = field(rand(1:m-1))
+        z = x^q
+        if z^pow2 != field(1) # found QNR
+            break
+        end
+    end
+    y = z
+    r = e
+    x = a^(div(q - 1, 2))
+    v = a * x
+    w = v * x
+    while (w != 1)
+        k = 0
+        temp_w = w
+        while true
+            temp_w *= temp_w
+            k += 1
+            if temp_w == 1
+                break
+            end
+        end
+        d = y^(2^(r - k - 1))
+        y = d * d
+        r = k
+        v = d * v
+        w = w * y
+    end
+    return v
+end
+
+function solveQuadratic(
+    field::AbstractAlgebra.GFField{BigInt},
+    a::AbstractAlgebra.GFElem{BigInt},
+    b::AbstractAlgebra.GFElem{BigInt},
+    c::AbstractAlgebra.GFElem{BigInt},
+)
+    if a == 0
+        if b == 0
+            if c == 0
+                return "YES"
+            else
+                return "NO"
+            end
+        else
+            return [AbstractAlgebra.divexact(-c, b)]
+        end
+    else
+        disc = b * b - field(4) * a * c
+        rt = squareRoot(field, disc)
+        if rt != 0
+            return [
+                AbstractAlgebra.divexact(-b + disc, field(2) * a),
+                AbstractAlgebra.divexact(-b - disc, field(2) * a),
+            ]
+        else
+            return [AbstractAlgebra.divexact(-b, field(2) * a)]
+        end
+    end
+end
+
+mutable struct VariableState # This represents all the information known about variables. 
+    index::Base.Int64
+    is_known::Bool # have nonzero-information 
+    unique::Bool # we know the value for sure
+    values::Vector{AbstractAlgebra.GFElem{BigInt}} # A list of potential values that this variable can take. 
+    lb::AbstractAlgebra.GFElem{BigInt}
+    ub::AbstractAlgebra.GFElem{BigInt}
+    bounds_negative::Bool
+    abz::Base.Int64
+    VariableState(a::Base.Int64) = begin
+        new(a, false, false, [], F(0), F(-1), false, -1)
+    end
+
+    VariableState(
+        a::Base.Int64,
+        is_known::Bool,
+        unique::Bool,
+        values::Vector{AbstractAlgebra.GFElem{BigInt}},
+        lb::AbstractAlgebra.GFElem{BigInt},
+        ub::AbstractAlgebra.GFElem{BigInt},
+        bounds_negative::Bool,
+        abz::Base.Int64,
+    ) = begin
+        new(a, is_known, unique, values, lb, ub, bounds_negative, -1)
+    end
+end
+
+begin
+    function make_unique(a::VariableState)
+        return VariableState(
+            a.index,
+            true,
+            true,
+            a.values,
+            a.lb,
+            a.ub,
+            a.bounds_negative,
+            a.abz,
+        )
+    end
+
+    function make_values(
+        a::VariableState,
+        new_values::Vector{AbstractAlgebra.GFElem{BigInt}},
+    )
+        return VariableState(
+            a.index,
+            true,
+            a.unique,
+            new_values,
+            a.lb,
+            a.ub,
+            a.bounds_negative,
+            a.abz,
+        )
+    end
+
+    function make_bounds(
+        a::VariableState,
+        lb::AbstractAlgebra.GFElem{BigInt},
+        ub::AbstractAlgebra.GFElem{BigInt},
+        neg_bounds::Bool=false,
+    )
+        # lies between lb and ub
+        return VariableState(a.index, true, a.unique, a.values, lb, ub, neg_bounds, a.abz)
+    end
+end
+
+
+# check if these two dictionaries have the same multiset of values
+function checkNonZeroValues(
+    map1::DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}},
+    map2::DefaultDict{Base.Int64,AbstractAlgebra.GFElem{BigInt}},
+)
+    x1 = counter(values(map1))
+    x2 = counter(values(map2))
+    for ele in keys(x1)
+        if ele != F(0)
+            if x1[ele] != x2[ele]
+                return false
+            end
+        end
+    end
+    for ele in keys(x2)
+        if ele != F(0)
+            if x1[ele] != x2[ele]
+                return false
+            end
+        end
+    end
+    return true
+end
+
+function hash_r1cs_equation(
+    e::R1CSEquation
+)
+    l = vcat(sort!([x.d for x in values(e.a)]), sort!([x.d for x in values(e.b)]), sort!([x.d for x in values(e.c)]))
+    l = [x for x in l if x != 0]
+
+    return hash(l)
+end
+
+function abstraction(
+    function_name::String,
+    constraints::Array{R1CSEquation},
+    known_inputs::Array{Base.Int64},
+    sub_equation::Array{R1CSEquation},
+    known_outputs::Array{Base.Int64},
+    printRes::Bool=false,
+)
+    if printRes
+        println("known inputs", known_inputs)
+        println("called abstraction")
+        println("big #: ", length(constraints))
+        println("small #: ", length(sub_equation))
+    end
+    a = time()
+    hashed_constraints = [hash_r1cs_equation(x) for x in constraints]
+    hashed_sub_equation = [hash_r1cs_equation(x) for x in sub_equation]
+    f = time()
+    if printRes
+        println("compute hash ", f - a)
+    end
+    candidates = []
+    for i in 1:length(constraints)-length(sub_equation)+1
+        matches = true
+        for j in 1:length(sub_equation)-1
+            if hashed_constraints[i+j-1] != hashed_sub_equation[j]
+                matches = false
+                break
+            end
+        end
+        if matches
+            push!(candidates, i)
+        end
+    end
+    b = time()
+    if printRes
+        println("hash match ", b - f)
+    end
+    matches = [] # contains index, as well as (orig_var -> new_var maps)
+    appearance_map_orig = DefaultDict{
+        Base.Int64,
+        Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}},
+    }(Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}})
+    sub_eq_counter = 1
+    # one can also do this witha a Rabin-Karp Hash.
+    for j = 1:length(sub_equation)
+        for eq in [sub_equation[j].a, sub_equation[j].b, sub_equation[j].c]
+            for term in eq
+                if term[2] != F(0)
+                    tup = (sub_eq_counter, F(term[2]))
+                    push!(appearance_map_orig[term[1]], tup)
+                end
+            end
+            sub_eq_counter += 1
+        end
+    end
+    for i in candidates
+        # try each of the things that the hash matches. 
+        works = true
+        appearance_map_cur = DefaultDict{
+            Base.Int64,
+            Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}},
+        }(Vector{Tuple{Base.Int64,AbstractAlgebra.GFElem{BigInt}}})
+        app_counter = 0
+        function addEquation(eq1, eq2)
+            if !checkNonZeroValues(eq1, eq2)
+                return false
+            end
+            for term in eq1
+                if term[2] != F(0)
+                    tup = (app_counter, F(term[2]))
+                    push!(appearance_map_cur[term[1]], tup)
+                end
+            end
+            return true
+        end
+        for j = 1:length(sub_equation)
+            app_counter += 1
+            if !addEquation(constraints[i+j-1].a, sub_equation[j].a)
+                works = false
+                break
+            end
+            app_counter += 1
+            if !addEquation(constraints[i+j-1].b, sub_equation[j].b)
+                works = false
+                break
+            end
+            app_counter += 1
+            if !addEquation(constraints[i+j-1].c, sub_equation[j].c)
+                works = false
+                break
+            end
+        end
+        if !works
+            continue
+        end
+
+        l1 = sort(collect(appearance_map_cur), by=x -> [(y[1], y[2].d) for y in x[2]])
+        l2 = sort(collect(appearance_map_orig), by=x -> [(y[1], y[2].d) for y in x[2]])
+        if length(l1) != length(l2)
+            continue
+        else
+            works = true
+            for i = 1:length(l1)
+                if l1[i][2] != l2[i][2]
+                    works = false
+                    break
+                end
+            end
+            if !works
+                continue
+            end
+        end
+        # first appearances check 
+        push!(matches, (i, Dict(l2[x][1] => l1[x][1] for x = 1:length(l1))))
+    end
+    c = time()
+    if printRes
+        println("found matches ", c - b)
+    end
+    red_cons = []
+    special_cons = []
+    cur_idx = 1
+    i = 1
+    total_vars = maximum([
+        maximum([
+            maximum(keys(constraints[i].a)),
+            maximum(keys(constraints[i].b)),
+            maximum(keys(constraints[i].c)),
+        ]) for i = 1:length(constraints)
+    ])
+    while i <= length(constraints)
+        #println(i)
+        if ((cur_idx > length(matches)) || (i != matches[cur_idx][1]))
+            push!(red_cons, constraints[i])
+            i += 1
+        else
+            # the transformed inputs / outputs under matches[cur_idx][2]. 
+            #println("known inputs", known_inputs)
+            #println("known outputs", known_outputs)
+            push!(
+                special_cons,
+                (
+                    function_name,
+                    [matches[cur_idx][2][x] for x in known_inputs if x != 1],
+                    [matches[cur_idx][2][x] for x in known_outputs],
+                ),
+            )
+            i += length(sub_equation)
+            cur_idx += 1
+        end
+    end
+    d = time()
+    if printRes
+        println("solved question ", d - c)
+        println("abstractions found ", length(special_cons))
+    end
+    return (special_cons), Array{R1CSEquation}(red_cons)
+end
+
+function printState(x::VariableState)
+    bounds = [x.lb.d, x.ub.d]
+    if bounds[1] == 0 && bounds[2] == 21888242871839275222246405745257275088548364400416034343698204186575808495616
+        bounds = []
+    end
+    println(
+        "Uniquely Determined: ",
+        x.unique)
+
+    if bounds == []
+        println("Bounds: None")
+    else
+        println("Bounds: [", bounds[1], ", ", bounds[2], "]")
+    end
+    if x.values != []
+        println(
+            "All possible values: ",
+            sort!([val.d for val in x.values])
+        )
+    end
+    println()
+
+end
+
+function fix_number(x::BigInt)
+    if x > 21888242871839275222246405745257275088548363400416034343698204186575808495517
+        return x -
+               21888242871839275222246405745257275088548364400416034343698204186575808495617
+    else
+        return x
+    end
+end
+
+# a utility for pretty printing equations 
+function printEquation(x::R1CSEquation, index_to_signal::Array{String,1})
+    function get_lin(x)
+        if length(nonzeroKeys(x)) == 0
+            return "0"
+        end
+        function fix_signal(key)
+            if key > 0
+                return index_to_signal[key]
+            else
+                return 1
+            end
+        end
+        return "(" *
+               join(
+                   [
+                       string(fix_number(x[key].d)) * " * " * string(fix_signal(key - 1)) * ""
+                       for key in nonzeroKeys(x)
+                   ],
+                   " + ",
+               ) * ")"
+    end
+    str1 = get_lin(x.a)
+    str2 = get_lin(x.b)
+    str3 = get_lin(x.c)
+    println(str1 * " * " * str2 * " = " * str3)
+end
 
 function readJSON(filename::String)
     dict = Dict()
@@ -70,9 +501,7 @@ end
 
 function solveWithTrustedFunctions(
     input_r1cs::String,
-    input_sym::String,
-    input_r1cs_name::String,
-    json_result::Dict{String, Any};
+    input_r1cs_name::String;
     trusted_r1cs::Vector{String}=Vector{String}([]),
     trusted_r1cs_names::Vector{String}=Vector{String}([]),
     debug::Bool=false,
@@ -81,7 +510,7 @@ function solveWithTrustedFunctions(
     input_sym::String="",
     secp_solve::Bool=false
 )
-
+    a = Dates.now()
     @assert (length(trusted_r1cs) == length(trusted_r1cs_names))
     equations_main, knowns_main, outs_main, num_variables = readR1CS(input_r1cs)
     function_list = []
@@ -118,39 +547,34 @@ function solveWithTrustedFunctions(
         println(specials)
         return true
     end
-    result = SolveConstraintsSymbolic(reduced, specials, knowns_main, debug, outs_main, num_variables, input_sym, secp_solve, json_result)
+    b = Dates.now()
+    println("time to prep inputs ", b - a)
+    result = SolveConstraintsSymbolic(reduced, specials, knowns_main, debug, outs_main, num_variables, input_sym, secp_solve)
     if result == true
         if length(function_list) != 0
             if printRes
-                msg = (
-                    "R1CS function " *
-                    input_r1cs_name *
-                    " has sound constraints assuming trusted functions " *
-                    join([trusted_r1cs_names[i] for i = 1:length(function_list)], ", "),
-                )
-                println(msg)
-                json_result["result"] = msg
+                msg = "R1CS function " *
+                      input_r1cs_name *
+                      " has sound constraints assuming trusted functions " *
+                      join([trusted_r1cs_names[i] for i = 1:length(function_list)], ", "), println(msg)
+                #json_result["result"] = msg
             end
             return true
         else
             if printRes
-                msg = (
-                    "R1CS function " *
-                    input_r1cs_name *
-                    " has sound constraints (No trusted functions needed!)",
-                )
+                msg = "R1CS function " *
+                      input_r1cs_name *
+                      " has sound constraints (No trusted functions needed!)"
                 println(msg)
-                json_result["result"] = msg
+                #json_result["result"] = msg
             end
             return true
         end
     else
         if printRes
-            msg = (
-                "R1CS function " * input_r1cs_name * " has potentially unsound constraints",
-            )
+            msg = "R1CS function " * input_r1cs_name * " has potentially unsound constraints"
             println(msg)
-            json_result["result"] = msg
+            #json_result["result"] = msg
         end
         return false
     end
@@ -165,8 +589,9 @@ function SolveConstraintsSymbolic(
     num_variables::Int=-1,
     input_sym::String="default.sym",
     secp_solve::Bool=false,
-    json_result::Dict{String, Any}=Dict("result" => "empty", "constraints" => ["empty"]),
 )
+    time_begin_solve = Dates.now()
+
     num_unknowns =
         [length(setdiff(getVariables(x), Set(known_variables))) for x in constraints]
     in_queue = [false for x = 1:length(constraints)]
@@ -187,9 +612,11 @@ function SolveConstraintsSymbolic(
             push!(l, j)
         end
     end
+    for i in target_variables
+        push!(l, i)
+    end
     all_nontrivial_vars = Set(l)
-    println("all var length")
-    println(length(all_nontrivial_vars))
+
 
     q = Queue{Int64}()
     for i = 1:length(constraints)
@@ -198,14 +625,6 @@ function SolveConstraintsSymbolic(
             in_queue[i] = true
         end
     end
-    #num_variables = maximum([
-    #    maximum([
-    #        maximum(keys(constraints[i].a)),
-    #        maximum(keys(constraints[i].b)),
-    #        maximum(keys(constraints[i].c)),
-    #    ]) for i = 1:length(constraints)
-    #])
-    #println("num variables", num_variables)
     variable_to_indices = DefaultDict{Base.Int64,Vector{Int64}}(Vector{Int64})
     for i = 1:length(constraints)
         for j in getVariables(constraints[i])
@@ -281,6 +700,9 @@ function SolveConstraintsSymbolic(
     nzk_c = [nonzeroKeys(constraints[i].c) for i = 1:length(constraints)]
     num_unique = 0
     display_eq = [true for i = 1:length(constraints)]
+    setup_done = Dates.now()
+    println("setup solver ", setup_done - time_begin_solve)
+
     while true
         prog_made = false
         if (prev_successful_steps == successful_steps)
@@ -1160,13 +1582,13 @@ function SolveConstraintsSymbolic(
         end
     end
 
-    if debug
+    if true
         println(
-            "Target variables solved for ",
+            "Solved for ",
             target_unique,
-            " variables out of ",
+            " target variables out of ",
             length(target_variables),
-            " total variables",
+            " total target variables",
         )
     end
     function_good = false
@@ -1174,56 +1596,51 @@ function SolveConstraintsSymbolic(
         function_good = true
     end
     ## in this case, we solved for all the target variables, which means that we're in good shape. 
-
+    println("------ Bad Constraints ------")
+    println()
     ## parse sym file with csv reader
+    if input_sym != ""
+        csv_reader = CSV.File(input_sym; header=["i1", "i2", "i3", "signal"], skipto=0)
+        index_to_signal = String[]
+        for row in csv_reader
+            push!(index_to_signal, "$(row.signal)")
+        end
 
-    csv_reader = CSV.File(input_sym; header=["i1", "i2", "i3", "signal"], skipto=0)
-    index_to_signal = String[]
-
-    for row in csv_reader
-        push!(index_to_signal, "$(row.signal)")
-    end
-
-    # remove first entry
-    pop!(json_result["constraints"])
-
-    for i = 1:length(constraints)
-        all_unique = true
-        for var in getVariables(constraints[i])
-            if !variable_states[var].unique
-                all_unique = false
+        for i = 1:length(constraints)
+            all_unique = true
+            for var in getVariables(constraints[i])
+                if !variable_states[var].unique
+                    all_unique = false
+                end
             end
-        end
-        if all_unique
-            continue
-        end
-        #if equation_solved[i]
-        #    continue
-        #end
-        #if !display_eq[i]
-        #    continue
-        #end
-        println("constraint #", i)
-        printEquation(constraints[i], index_to_signal)
-        for j in getVariables(constraints[i])
-            if j == 1
+            if all_unique
                 continue
             end
-            if length(getVariables(constraints[i])) > 3
+            #if equation_solved[i]
+            #    continue
+            #end
+            #if !display_eq[i]
+            #    continue
+            #end
+            println("constraint #", i)
+            printEquation(constraints[i], index_to_signal)
+            for j in getVariables(constraints[i])
+                if j == 1
+                    continue
+                end
+                println(index_to_signal[j-1])
+                printState(variable_states[j])
+            end
+        end
+        println("------ All Variables ------")
+        println()
+        for i in all_nontrivial_vars
+            if i == 1
                 continue
             end
-            println(index_to_signal[j-1])
-            printState(variable_states[j])
+            println(index_to_signal[i-1])
+            printState(variable_states[i])
         end
-    end
-    for i in all_nontrivial_vars
-        if i == 1
-            continue
-        end
-        println("constraint #", i)
-        println(printEquation(constraints[i], index_to_signal))
-        
-        push!(json_result["constraints"], printEquation(constraints[i], index_to_signal))
     end
     return function_good
 end

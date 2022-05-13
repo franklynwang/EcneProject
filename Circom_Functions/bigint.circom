@@ -522,5 +522,5 @@ template BigModInv(n, k) {
     }
 }
 
-//component main = BigLessThan(86,3);
+component main = BigMultShortLong(86,3);
 

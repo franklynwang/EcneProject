@@ -1,7 +1,5 @@
-pragma circom 2.0.0;
-
-include "../Circom_Functions/circomlib/circuits/bitify.circom";
-include "../Circom_Functions/circomlib/circuits/pedersen.circom";
+include "../circomlib/circuits/bitify.circom";
+include "../circomlib/circuits/pedersen.circom";
 include "merkleTree.circom";
 
 // computes Pedersen(nullifier + secret)

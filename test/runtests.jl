@@ -32,7 +32,7 @@ end
 
 
 @testset "secpAddUnequal given BigMultModP, BigLessThan" begin
-    @test solveWithTrustedFunctions("../secp256k1.r1cs", "secpAddUnequal", trusted_r1cs=["../bigmultmodp.r1cs", "../biglessthan.r1cs"], trusted_r1cs_names=["BigMultModP", "BigLessThan"], printRes=false)
+    @test solveWithTrustedFunctions("../secp256k1.r1cs", "secpAddUnequal", trusted_r1cs=["../bigmultmodp.r1cs", "../biglessthan.r1cs"], trusted_r1cs_names=["BigMultModP", "BigLessThan"], secp_solve=true, printRes=false)
 end
 
 
