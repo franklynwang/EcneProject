@@ -8,30 +8,30 @@ import R1CSConstraintSolver: solveWithTrustedFunctions
 
 function main(args)
 
-    s = ArgParseSettings(description = "Ecne command-line helper")
+    s = ArgParseSettings(description="Ecne command-line helper")
 
     @add_arg_table! s begin
         "--r1cs"
-            help = "de-optimized R1CS file to verify"     
-            required = true
+        help = "de-optimized R1CS file to verify"
+        required = true
         "--name"
-            help = "Circuit name"     
-            required = true
+        help = "Circuit name"
+        required = true
         "--sym"
-            help = "symbol file with labels"
-            required = true        
+        help = "symbol file with labels"
+        required = true
         "--trusted"
-            help = "Optional trusted R1CS file"
-   end
+        help = "Optional trusted R1CS file"
+    end
 
     parsed_args = parse_args(args, s)
 
-    dict = Dict("result" => "empty", "constraints" => ["empty"])
+    #dict = Dict("result" => "empty", "constraints" => ["empty"])
 
     try
-        solveWithTrustedFunctions(parsed_args["r1cs"], parsed_args["sym"], parsed_args["name"], dict)
+        solveWithTrustedFunctions(parsed_args["r1cs"], parsed_args["name"], input_sym=parsed_args["sym"], debug=false)
     catch e
-        println("Error while running solveWithTrustedFunctions", e)
+        println("Error while running solveWithTrustedFunctions\n", e)
     end
 end
 
