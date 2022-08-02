@@ -11,7 +11,7 @@ macro run_bench(name, expr, args...)
 end
 
 @run_bench "Trivial Multiplication Benchmark" begin
-    solveWithTrustedFunctions("target/division.r1cs", "target/division.sym", "division")
+    solveWithTrustedFunctions("target/division.r1cs", "division")
 end
 
 
